@@ -127,11 +127,11 @@ build_project() {
     if [ -n "$RUST_TARGET" ]; then
         print_info "Building for target: $RUST_TARGET"
         cargo build --release --target "$RUST_TARGET"
-        BINARY_PATH="target/$RUST_TARGET/release/mayan-utils"
+        BINARY_PATH="target/$RUST_TARGET/release/mayan-cli"
     else
         print_info "Building with default target"
         cargo build --release
-        BINARY_PATH="target/release/mayan-utils"
+        BINARY_PATH="target/release/mayan-cli"
     fi
     
     if [ ! -f "$BINARY_PATH" ]; then
@@ -154,21 +154,21 @@ install_binary() {
     # Check if we need sudo
     if [ ! -w "$INSTALL_DIR" ]; then
         print_warning "Need sudo permissions to install to $INSTALL_DIR"
-        sudo cp "$BINARY_PATH" "$INSTALL_DIR/mayan-utils"
-        sudo chmod +x "$INSTALL_DIR/mayan-utils"
+        sudo cp "$BINARY_PATH" "$INSTALL_DIR/mayan-cli"
+        sudo chmod +x "$INSTALL_DIR/mayan-cli"
     else
-        cp "$BINARY_PATH" "$INSTALL_DIR/mayan-utils"
-        chmod +x "$INSTALL_DIR/mayan-utils"
+        cp "$BINARY_PATH" "$INSTALL_DIR/mayan-cli"
+        chmod +x "$INSTALL_DIR/mayan-cli"
     fi
     
-    print_success "Installed successfully to $INSTALL_DIR/mayan-utils"
+    print_success "Installed successfully to $INSTALL_DIR/mayan-cli"
 }
 
 # Verify installation
 verify_installation() {
-    if command -v mayan-utils &> /dev/null; then
-        print_success "Installation verified! You can now use 'mayan-utils' command."
-        print_info "Try: mayan-utils --help"
+    if command -v mayan-cli &> /dev/null; then
+        print_success "Installation verified! You can now use 'mayan-cli' command."
+        print_info "Try: mayan-cli --help"
     else
         print_error "Installation verification failed!"
         print_info "Make sure $INSTALL_DIR is in your PATH"
@@ -217,9 +217,9 @@ main() {
     echo
     print_success "🎉 Installation completed successfully!"
     print_info "You can now use the following commands:"
-    print_info "  mayan-utils gasa <ORDER_ID>                    # Get auction state address"
-    print_info "  mayan-utils gas <ORDER_ID_OR_ADDRESS>          # Get auction state data"
-    print_info "  mayan-utils --help                             # Show help"
+    print_info "  mayan-cli gasa <ORDER_ID>                    # Get auction state address"
+    print_info "  mayan-cli gas <ORDER_ID_OR_ADDRESS>          # Get auction state data"
+    print_info "  mayan-cli --help                             # Show help"
     echo
 }
 

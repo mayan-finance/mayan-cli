@@ -8,7 +8,7 @@ use solana_sdk::pubkey::Pubkey;
 use std::str::FromStr;
 
 #[derive(Parser)]
-#[command(name = "mayan-utils")]
+#[command(name = "mayan-cli")]
 #[command(about = "A CLI utility for Mayan Finance operations")]
 #[command(version = "0.1.0")]
 struct Cli {

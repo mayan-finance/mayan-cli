@@ -25,7 +25,7 @@ We provide an automated install script that detects your system and builds the a
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd mayan-utils
+cd mayan-cli
 
 # Run the install script
 ./install.sh
@@ -53,21 +53,21 @@ The script will:
 
 ```bash
 git clone <your-repo-url>
-cd mayan-utils
+cd mayan-cli
 cargo build --release
 ```
 
-The compiled binary will be available at `target/release/mayan-utils`.
+The compiled binary will be available at `target/release/mayan-cli`.
 
 ### Manual Installation
 
 ```bash
 # Copy to system bin directory (requires sudo on most systems)
-sudo cp target/release/mayan-utils /usr/local/bin/
+sudo cp target/release/mayan-cli /usr/local/bin/
 
 # Or copy to user bin directory
 mkdir -p ~/.local/bin
-cp target/release/mayan-utils ~/.local/bin/
+cp target/release/mayan-cli ~/.local/bin/
 export PATH="$HOME/.local/bin:$PATH"  # Add to your shell profile
 ```
 
@@ -85,7 +85,7 @@ cargo run -- get-auction-state-address <ORDER_ID>
 cargo run -- gasa <ORDER_ID>
 
 # Using the compiled binary
-./target/release/mayan-utils gasa <ORDER_ID>
+./target/release/mayan-cli gasa <ORDER_ID>
 ```
 
 #### Example
@@ -119,7 +119,7 @@ cargo run -- gas <AUCTION_STATE_ADDRESS>
 cargo run -- gas <ORDER_ID_OR_ADDRESS> --rpc-url <RPC_URL>
 
 # Using the compiled binary
-./target/release/mayan-utils gas <ORDER_ID_OR_ADDRESS>
+./target/release/mayan-cli gas <ORDER_ID_OR_ADDRESS>
 ```
 
 #### Example with Order ID
