@@ -18,6 +18,33 @@ A command-line utility for Mayan Finance operations that provides easy access to
 
 ## Installation
 
+### Option 1: Automated Install Script (Recommended)
+
+We provide an automated install script that detects your system and builds the appropriate binary:
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd mayan-utils
+
+# Run the install script
+./install.sh
+```
+
+**Supported Systems:**
+- **macOS**: Intel (x86_64) and Apple Silicon (M1/M2/M3)
+- **Linux**: x86_64, ARM64, and ARM v7 architectures
+- **Auto-detection**: Automatically detects your system and builds the correct target
+
+The script will:
+1. ✅ Check for Rust installation
+2. 🔍 Detect your system architecture
+3. 🏗️ Build the optimized binary for your platform
+4. 📦 Install to `/usr/local/bin` (may require sudo)
+5. ✅ Verify the installation
+
+### Option 2: Manual Build
+
 ### Prerequisites
 
 - Rust (install from [rustup.rs](https://rustup.rs/))
@@ -31,6 +58,18 @@ cargo build --release
 ```
 
 The compiled binary will be available at `target/release/mayan-utils`.
+
+### Manual Installation
+
+```bash
+# Copy to system bin directory (requires sudo on most systems)
+sudo cp target/release/mayan-utils /usr/local/bin/
+
+# Or copy to user bin directory
+mkdir -p ~/.local/bin
+cp target/release/mayan-utils ~/.local/bin/
+export PATH="$HOME/.local/bin:$PATH"  # Add to your shell profile
+```
 
 ## Usage
 
