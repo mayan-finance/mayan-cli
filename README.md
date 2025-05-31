@@ -1,11 +1,20 @@
 # Mayan Utils CLI
 
-A command-line utility for Mayan Finance operations.
+A command-line utility for Mayan Finance operations that provides easy access to auction state data from order IDs or auction state addresses.
 
 ## Features
 
 - **Get Auction State Address**: Retrieve the auction state address from a Mayan order ID
-- **Parse Auction State**: Fetch and parse the complete auction state data from Solana blockchain
+- **Get Auction State**: Fetch and parse complete auction state data from order ID or auction state address
+- **Colored Output**: Enhanced readability with green-colored field names
+- **Flexible Input**: Works with both order IDs and direct auction state addresses
+
+## Commands
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `get-auction-state-address` | `gasa` | Get auction state address from order ID |
+| `get-auction-state` | `gas` | Get and parse auction state data from order ID or auction state address |
 
 ## Installation
 
@@ -30,17 +39,20 @@ The compiled binary will be available at `target/release/mayan-utils`.
 Retrieve the auction state address for a given order ID:
 
 ```bash
-# Using cargo run (for development)
-cargo run -- get-auction-state <ORDER_ID>
+# Using full command name
+cargo run -- get-auction-state-address <ORDER_ID>
+
+# Using short alias
+cargo run -- gasa <ORDER_ID>
 
 # Using the compiled binary
-./target/release/mayan-utils get-auction-state <ORDER_ID>
+./target/release/mayan-utils gasa <ORDER_ID>
 ```
 
 #### Example
 
 ```bash
-cargo run -- get-auction-state "SWIFT_0xcd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a"
+cargo run -- gasa "SWIFT_0xcd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a"
 ```
 
 Output:
@@ -48,31 +60,43 @@ Output:
 Auction State Address: 6p7fUeppNLatf5TkmMA4ybpSJBejMnGSRknhPfEBNSF3
 ```
 
-### Parse Auction State
+### Get Auction State
 
-Fetch the auction state address and then retrieve and parse the complete auction state data from the Solana blockchain:
+Fetch and parse the complete auction state data. This command accepts either:
+- **Order ID**: Automatically fetches auction state address from Mayan API
+- **Auction State Address**: Directly queries Solana blockchain
 
 ```bash
-# Using cargo run (for development)
-cargo run -- parse-auction-state <ORDER_ID>
+# Using full command name with order ID
+cargo run -- get-auction-state <ORDER_ID>
+
+# Using short alias with order ID
+cargo run -- gas <ORDER_ID>
+
+# Using auction state address directly
+cargo run -- gas <AUCTION_STATE_ADDRESS>
 
 # Using a custom RPC endpoint
-cargo run -- parse-auction-state <ORDER_ID> --rpc-url <RPC_URL>
+cargo run -- gas <ORDER_ID_OR_ADDRESS> --rpc-url <RPC_URL>
 
 # Using the compiled binary
-./target/release/mayan-utils parse-auction-state <ORDER_ID>
+./target/release/mayan-utils gas <ORDER_ID_OR_ADDRESS>
 ```
 
-#### Example
+#### Example with Order ID
 
 ```bash
-cargo run -- parse-auction-state "SWIFT_0xcd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a"
+cargo run -- gas "SWIFT_0xcd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a"
+```
+
+#### Example with Auction State Address
+
+```bash
+cargo run -- gas "6p7fUeppNLatf5TkmMA4ybpSJBejMnGSRknhPfEBNSF3"
 ```
 
 Output:
 ```
-Fetching and parsing auction state for order ID: SWIFT_0xcd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a
-Using RPC URL: https://api.mainnet-beta.solana.com
 Auction State Details:
   Bump: 255
   Hash: cd96bb4c31aa86d29a39117206055d2b17b65156c66886050c10abd48ee6691a
@@ -96,8 +120,8 @@ cargo run -- --help
 To get help for a specific command:
 
 ```bash
+cargo run -- get-auction-state-address --help
 cargo run -- get-auction-state --help
-cargo run -- parse-auction-state --help
 ```
 
 ## Auction State Data Structure
@@ -128,13 +152,14 @@ This tool uses the following APIs:
 
 - `reqwest`: HTTP client for API requests
 - `serde`: JSON serialization/deserialization
-- `clap`: Command-line argument parsing
+- `clap`: Command-line argument parsing with aliases
 - `tokio`: Async runtime
 - `anyhow`: Error handling
 - `solana-client`: Solana RPC client
 - `solana-sdk`: Solana SDK for public key handling
 - `borsh`: Binary serialization format for Solana account data
 - `hex`: Hexadecimal encoding for hash display
+- `colored`: Terminal color output for better readability
 
 ## Development
 

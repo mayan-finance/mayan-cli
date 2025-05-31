@@ -13,3 +13,4 @@ solana-client = "2.1"
 solana-sdk = "2.1"
 borsh = { version = "1.0", features = ["derive"] }
 hex = "0.4"
+colored = "2.0"
