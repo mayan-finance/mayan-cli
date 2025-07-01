@@ -33,6 +33,45 @@ enum Commands {
         #[arg(long, default_value = "https://api.mainnet-beta.solana.com")]
         rpc_url: String,
     },
+    /// Decode a base58 encoded string
+    #[command(alias = "b58d")]
+    Base58Decode {
+        /// The base58 encoded string to decode
+        input: String,
+        /// Output format: hex, bytes, or utf8
+        #[arg(long, default_value = "hex")]
+        format: String,
+    },
+    /// Encode data to base58
+    #[command(alias = "b58e")]
+    Base58Encode {
+        /// The input data to encode
+        input: String,
+        /// Input format: hex, bytes, or utf8
+        #[arg(long, default_value = "hex")]
+        format: String,
+    },
+    /// Convert hex string or bytes array to exactly 32 bytes (panics if not 32 bytes)
+    #[command(alias = "b32d")]
+    ToBytes32 {
+        /// The input hex string (with or without 0x prefix) or comma-separated bytes
+        input: String,
+        /// Input format: hex or bytes
+        #[arg(long, default_value = "hex")]
+        format: String,
+    },
+    /// Convert data to 32-byte array (pads if shorter, panics if longer than 32 bytes)
+    #[command(alias = "b32e")]
+    FromBytes32 {
+        /// The input data as hex string (with or without 0x prefix) or comma-separated bytes
+        input: String,
+        /// Input format: hex or bytes
+        #[arg(long, default_value = "hex")]
+        input_format: String,
+        /// Output format: hex or bytes
+        #[arg(long, default_value = "hex")]
+        output_format: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -165,6 +204,175 @@ fn format_auction_state(auction_state: &AuctionState) -> String {
     )
 }
 
+fn decode_base58(input: &str, format: &str) -> Result<()> {
+    let decoded = bs58::decode(input)
+        .into_vec()
+        .context("Failed to decode base58 string")?;
+
+    match format.to_lowercase().as_str() {
+        "hex" => {
+            println!("{}: {}", "Hex".green(), hex::encode(&decoded));
+        }
+        "bytes" => {
+            println!("{}: {:?}", "Bytes".green(), decoded);
+        }
+        "utf8" => {
+            match String::from_utf8(decoded.clone()) {
+                Ok(utf8_string) => {
+                    println!("{}: {}", "UTF-8".green(), utf8_string);
+                }
+                Err(_) => {
+                    println!("{}: Invalid UTF-8 sequence", "Error".red());
+                    println!("{}: {}", "Raw bytes".yellow(), hex::encode(&decoded));
+                }
+            }
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid format '{}'. Valid formats are: hex, bytes, utf8",
+                format
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn to_bytes32(input: &str, format: &str) -> Result<[u8; 32]> {
+    let bytes = match format.to_lowercase().as_str() {
+        "hex" => {
+            // Remove 0x prefix if present
+            let hex_str = input.strip_prefix("0x").unwrap_or(input);
+            hex::decode(hex_str).context("Failed to decode hex string")?
+        }
+        "bytes" => {
+            // Parse comma-separated bytes like "1,2,3,4,..."
+            input
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<u8>()
+                        .context("Failed to parse byte value")
+                })
+                .collect::<Result<Vec<u8>>>()?
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid format '{}'. Valid formats are: hex, bytes",
+                format
+            ));
+        }
+    };
+
+    if bytes.len() != 32 {
+        panic!(
+            "Input must be exactly 32 bytes, got {} bytes. Input: {}",
+            bytes.len(),
+            input
+        );
+    }
+
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&bytes);
+    Ok(result)
+}
+
+fn encode_base58(input: &str, format: &str) -> Result<()> {
+    let bytes = match format.to_lowercase().as_str() {
+        "hex" => {
+            // Remove 0x prefix if present
+            let hex_str = input.strip_prefix("0x").unwrap_or(input);
+            hex::decode(hex_str).context("Failed to decode hex string")?
+        }
+        "bytes" => {
+            // Parse comma-separated bytes like "1,2,3,4,..."
+            input
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<u8>()
+                        .context("Failed to parse byte value")
+                })
+                .collect::<Result<Vec<u8>>>()?
+        }
+        "utf8" => {
+            input.as_bytes().to_vec()
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid format '{}'. Valid formats are: hex, bytes, utf8",
+                format
+            ));
+        }
+    };
+
+    let encoded = bs58::encode(&bytes).into_string();
+    println!("{}: {}", "Base58".green(), encoded);
+
+    Ok(())
+}
+
+fn from_bytes32(input: &str, input_format: &str, output_format: &str) -> Result<()> {
+    // First, get the input bytes
+    let bytes = match input_format.to_lowercase().as_str() {
+        "hex" => {
+            // Remove 0x prefix if present
+            let hex_str = input.strip_prefix("0x").unwrap_or(input);
+            hex::decode(hex_str).context("Failed to decode hex string")?
+        }
+        "bytes" => {
+            // Parse comma-separated bytes like "1,2,3,4,..."
+            input
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<u8>()
+                        .context("Failed to parse byte value")
+                })
+                .collect::<Result<Vec<u8>>>()?
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid input format '{}'. Valid formats are: hex, bytes",
+                input_format
+            ));
+        }
+    };
+
+    // Check if input is longer than 32 bytes
+    if bytes.len() > 32 {
+        panic!(
+            "Input is too long: {} bytes. Maximum is 32 bytes. Input: {}",
+            bytes.len(),
+            input
+        );
+    }
+
+    // Pad to 32 bytes (left-pad with zeros for addresses, which is standard in Solidity)
+    let mut bytes32 = [0u8; 32];
+    let start_index = 32 - bytes.len();
+    bytes32[start_index..].copy_from_slice(&bytes);
+
+    // Output in the requested format
+    match output_format.to_lowercase().as_str() {
+        "hex" => {
+            println!("{}: 0x{}", "Hex".green(), hex::encode(bytes32));
+        }
+        "bytes" => {
+            println!("{}: [{}]", "Bytes".green(), 
+                bytes32.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "));
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid output format '{}'. Valid formats are: hex, bytes",
+                output_format
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -190,6 +398,37 @@ async fn main() -> Result<()> {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+        Commands::Base58Decode { input, format } => {
+            if let Err(e) = decode_base58(&input, &format) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Base58Encode { input, format } => {
+            if let Err(e) = encode_base58(&input, &format) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::ToBytes32 { input, format } => {
+            match to_bytes32(&input, &format) {
+                Ok(bytes32) => {
+                    println!("{}: [{}]", "Bytes32 Array".green(), 
+                        bytes32.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "));
+                    println!("{}: {}", "Hex".green(), hex::encode(bytes32));
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::FromBytes32 { input, input_format, output_format } => {
+            if let Err(e) = from_bytes32(&input, &input_format, &output_format) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
             }
         }
     }
