@@ -4,7 +4,13 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
+use solana_client::rpc_config::RpcTransactionConfig;
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Signature;
+use solana_transaction_status::{
+    EncodedTransaction, UiInstruction, UiMessage, UiParsedInstruction, UiTransactionEncoding,
+};
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -18,22 +24,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Get auction state address from order ID
+    /// Get auction state address from order ID [alias: gasa]
     #[command(alias = "gasa")]
     GetAuctionStateAddress {
         /// The order ID to query
         order_id: String,
     },
-    /// Get and parse auction state data from order ID or auction state address
+    /// Get and parse auction state data from order ID or auction state address [alias: gas]
     #[command(alias = "gas")]
     GetAuctionState {
         /// The order ID or auction state address to query
         input: String,
-        /// Solana RPC endpoint (optional, defaults to mainnet)
-        #[arg(long, default_value = "https://api.mainnet-beta.solana.com")]
+        /// Solana RPC endpoint (optional, defaults to mainnet) or env var SOLANA_RPC_URL
+        #[arg(long, default_value = "https://api.mainnet-beta.solana.com", env = "SOLANA_RPC_URL")]
         rpc_url: String,
     },
-    /// Decode a base58 encoded string
+    /// Get bid information from auction state address or order ID [alias: gb]
+    #[command(alias = "gb")]
+    GetBids {
+        /// The order ID or auction state address to query
+        input: String,
+        /// Solana RPC endpoint (optional, defaults to mainnet) or env var SOLANA_RPC_URL
+        #[arg(long, default_value = "https://api.mainnet-beta.solana.com", env = "SOLANA_RPC_URL")]
+        rpc_url: String,
+    },
+    /// Decode a base58 encoded string [alias: b58d]
     #[command(alias = "b58d")]
     Base58Decode {
         /// The base58 encoded string to decode
@@ -42,7 +57,7 @@ enum Commands {
         #[arg(long, default_value = "hex")]
         format: String,
     },
-    /// Encode data to base58
+    /// Encode data to base58 [alias: b58e]
     #[command(alias = "b58e")]
     Base58Encode {
         /// The input data to encode
@@ -51,7 +66,7 @@ enum Commands {
         #[arg(long, default_value = "hex")]
         format: String,
     },
-    /// Convert hex string or bytes array to exactly 32 bytes (panics if not 32 bytes)
+    /// Convert hex string or bytes array to exactly 32 bytes (panics if not 32 bytes) [alias: b32d]
     #[command(alias = "b32d")]
     ToBytes32 {
         /// The input hex string (with or without 0x prefix) or comma-separated bytes
@@ -60,7 +75,7 @@ enum Commands {
         #[arg(long, default_value = "hex")]
         format: String,
     },
-    /// Convert data to 32-byte array (pads if shorter, panics if longer than 32 bytes)
+    /// Convert data to 32-byte array (pads if shorter, panics if longer than 32 bytes) [alias: b32e]
     #[command(alias = "b32e")]
     FromBytes32 {
         /// The input data as hex string (with or without 0x prefix) or comma-separated bytes
@@ -94,6 +109,16 @@ pub struct AuctionState {
     pub amount_promised: u64,
     pub valid_from: u64,
     pub seq_msg: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BidEntry {
+    pub signature: String,
+    pub bidder: String,
+    pub bid_amount: u64,
+    pub slot: u64,
+    pub timestamp: Option<i64>,
+    pub failed: bool,
 }
 
 async fn get_auction_state_addr(order_id: &str) -> Result<String> {
@@ -171,6 +196,89 @@ async fn get_and_parse_auction_state(input: &str, rpc_url: &str) -> Result<Aucti
     Ok(auction_state)
 }
 
+async fn get_bid_history(auction_state_addr: &str, rpc_url: &str) -> Result<Vec<BidEntry>> {
+    let client = RpcClient::new(rpc_url.to_string());
+    let pubkey = Pubkey::from_str(auction_state_addr)
+        .context("Failed to parse auction state address as Pubkey")?;
+
+    let signatures = client
+        .get_signatures_for_address(&pubkey)
+        .context("Failed to get signatures for auction state address")?;
+
+    let mut bids = Vec::new();
+
+    // Limit to 100 transactions for performance
+    for sig_info in signatures.iter().take(100) {
+        let signature = Signature::from_str(&sig_info.signature)?;
+        let transaction = client.get_transaction_with_config(
+            &signature,
+            RpcTransactionConfig {
+                encoding: Some(UiTransactionEncoding::JsonParsed),
+                max_supported_transaction_version: Some(0),
+                commitment: Some(CommitmentConfig::confirmed()),
+            },
+        )?;
+
+        let meta = transaction
+            .transaction
+            .meta
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Failed to get transaction meta"))?;
+
+        let valid = meta
+            .log_messages
+            .as_ref()
+            .map(|logs| {
+                logs.iter()
+                    .any(|log| log.contains("Program log: Instruction: Bid"))
+            })
+            .unwrap_or(false);
+        if !valid {
+            continue;
+        }
+
+        let failed = meta.err.is_some();
+
+        let ui_transaction = match &transaction.transaction.transaction {
+            EncodedTransaction::Json(parsed_tx) => parsed_tx,
+            _ => continue, // skip unsupported encodings
+        };
+
+        // Only handle parsed messages
+        let message = match &ui_transaction.message {
+            UiMessage::Parsed(parsed_msg) => parsed_msg,
+            _ => continue,
+        };
+
+        let instruction = message.instructions[2].clone();
+        let parsed = match instruction {
+            UiInstruction::Parsed(UiParsedInstruction::PartiallyDecoded(parsed)) => parsed,
+            _ => {
+                println!("Not a parsed instruction");
+                continue;
+            }
+        };
+
+        let bidder = message.account_keys[0].pubkey.clone();
+        let data = bs58::decode(parsed.data).into_vec().unwrap();
+        let bid_amount = u64::from_le_bytes(data[data.len() - 8..].try_into().unwrap());
+
+        bids.push(BidEntry {
+            signature: sig_info.signature.clone(),
+            bidder,
+            bid_amount,
+            slot: sig_info.slot,
+            timestamp: sig_info.block_time,
+            failed,
+        });
+    }
+
+    // Sort bids by slot (chronological order)
+    bids.sort_by(|a, b| a.slot.cmp(&b.slot));
+
+    Ok(bids)
+}
+
 fn format_auction_state(auction_state: &AuctionState) -> String {
     format!(
         "Auction State Details:
@@ -204,6 +312,63 @@ fn format_auction_state(auction_state: &AuctionState) -> String {
     )
 }
 
+fn format_bid_history(bids: &[BidEntry]) -> String {
+    if bids.is_empty() {
+        return format!("{}: No bids found", "Bid History".yellow());
+    }
+
+    let mut result = format!("{}: {} bids found\n", "Bid History".green(), bids.len());
+
+    for (i, bid) in bids.iter().enumerate() {
+        let (diff_str, status_str) = if i > 0 && bid.bid_amount > 0 && bids[i - 1].bid_amount > 0 {
+            let diff = bid.bid_amount as i128 - bids[i - 1].bid_amount as i128;
+            let status = format!("  {}: {}", "Status".green(), if bid.failed { "Failed".red() } else { "Success".green() });
+            if diff >= 0 {
+                (format!("+{}", diff).blue().to_string(), status)
+            } else {
+                (format!("{}", diff).red().to_string(), status)
+            }
+        } else {
+            ("-".to_string(), "".to_string())
+        };
+
+        result.push_str(&format!(
+            "\n{} {}:
+  {}: {}
+  {}: {}
+  {}: {}
+  {}: {}
+  {}: {}
+  {}: {}{}",
+            "Bid".cyan(),
+            i + 1,
+            "Signature".green(),
+            bid.signature,
+            "Bidder".green(),
+            bid.bidder,
+            "Amount".green(),
+            if bid.bid_amount > 0 {
+                bid.bid_amount.to_string().yellow().to_string()
+            } else {
+                "Unknown".to_string()
+            },
+            "Diff".green(),
+            diff_str,
+            "Slot".green(),
+            bid.slot,
+            "Timestamp".green(),
+            bid.timestamp.unwrap_or(0),
+            if !status_str.is_empty() {
+                format!("\n{}", status_str)
+            } else {
+                "".to_string()
+            }
+        ));
+    }
+
+    result
+}
+
 fn decode_base58(input: &str, format: &str) -> Result<()> {
     let decoded = bs58::decode(input)
         .into_vec()
@@ -216,17 +381,15 @@ fn decode_base58(input: &str, format: &str) -> Result<()> {
         "bytes" => {
             println!("{}: {:?}", "Bytes".green(), decoded);
         }
-        "utf8" => {
-            match String::from_utf8(decoded.clone()) {
-                Ok(utf8_string) => {
-                    println!("{}: {}", "UTF-8".green(), utf8_string);
-                }
-                Err(_) => {
-                    println!("{}: Invalid UTF-8 sequence", "Error".red());
-                    println!("{}: {}", "Raw bytes".yellow(), hex::encode(&decoded));
-                }
+        "utf8" => match String::from_utf8(decoded.clone()) {
+            Ok(utf8_string) => {
+                println!("{}: {}", "UTF-8".green(), utf8_string);
             }
-        }
+            Err(_) => {
+                println!("{}: Invalid UTF-8 sequence", "Error".red());
+                println!("{}: {}", "Raw bytes".yellow(), hex::encode(&decoded));
+            }
+        },
         _ => {
             return Err(anyhow::anyhow!(
                 "Invalid format '{}'. Valid formats are: hex, bytes, utf8",
@@ -249,11 +412,7 @@ fn to_bytes32(input: &str, format: &str) -> Result<[u8; 32]> {
             // Parse comma-separated bytes like "1,2,3,4,..."
             input
                 .split(',')
-                .map(|s| {
-                    s.trim()
-                        .parse::<u8>()
-                        .context("Failed to parse byte value")
-                })
+                .map(|s| s.trim().parse::<u8>().context("Failed to parse byte value"))
                 .collect::<Result<Vec<u8>>>()?
         }
         _ => {
@@ -288,16 +447,10 @@ fn encode_base58(input: &str, format: &str) -> Result<()> {
             // Parse comma-separated bytes like "1,2,3,4,..."
             input
                 .split(',')
-                .map(|s| {
-                    s.trim()
-                        .parse::<u8>()
-                        .context("Failed to parse byte value")
-                })
+                .map(|s| s.trim().parse::<u8>().context("Failed to parse byte value"))
                 .collect::<Result<Vec<u8>>>()?
         }
-        "utf8" => {
-            input.as_bytes().to_vec()
-        }
+        "utf8" => input.as_bytes().to_vec(),
         _ => {
             return Err(anyhow::anyhow!(
                 "Invalid format '{}'. Valid formats are: hex, bytes, utf8",
@@ -324,11 +477,7 @@ fn from_bytes32(input: &str, input_format: &str, output_format: &str) -> Result<
             // Parse comma-separated bytes like "1,2,3,4,..."
             input
                 .split(',')
-                .map(|s| {
-                    s.trim()
-                        .parse::<u8>()
-                        .context("Failed to parse byte value")
-                })
+                .map(|s| s.trim().parse::<u8>().context("Failed to parse byte value"))
                 .collect::<Result<Vec<u8>>>()?
         }
         _ => {
@@ -359,8 +508,15 @@ fn from_bytes32(input: &str, input_format: &str, output_format: &str) -> Result<
             println!("{}: 0x{}", "Hex".green(), hex::encode(bytes32));
         }
         "bytes" => {
-            println!("{}: [{}]", "Bytes".green(), 
-                bytes32.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "));
+            println!(
+                "{}: [{}]",
+                "Bytes".green(),
+                bytes32
+                    .iter()
+                    .map(|b| b.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -381,7 +537,11 @@ async fn main() -> Result<()> {
         Commands::GetAuctionStateAddress { order_id } => {
             match get_auction_state_addr(&order_id).await {
                 Ok(auction_state_addr) => {
-                    println!("{}: {}", "Auction State Address".green(), auction_state_addr);
+                    println!(
+                        "{}: {}",
+                        "Auction State Address".green(),
+                        auction_state_addr
+                    );
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -393,6 +553,35 @@ async fn main() -> Result<()> {
             match get_and_parse_auction_state(&input, &rpc_url).await {
                 Ok(auction_state) => {
                     println!("{}", format_auction_state(&auction_state));
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::GetBids { input, rpc_url } => {
+            // Determine if input is an order ID or auction state address
+            let auction_state_addr = match Pubkey::from_str(&input) {
+                Ok(_) => {
+                    // Input is already a valid Pubkey (auction state address)
+                    input.clone()
+                }
+                Err(_) => {
+                    // Input is likely an order ID, fetch auction state address from API
+                    match get_auction_state_addr(&input).await {
+                        Ok(addr) => addr,
+                        Err(e) => {
+                            eprintln!("Error getting auction state address: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            };
+
+            match get_bid_history(&auction_state_addr, &rpc_url).await {
+                Ok(bids) => {
+                    println!("{}", format_bid_history(&bids));
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -412,20 +601,29 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::ToBytes32 { input, format } => {
-            match to_bytes32(&input, &format) {
-                Ok(bytes32) => {
-                    println!("{}: [{}]", "Bytes32 Array".green(), 
-                        bytes32.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "));
-                    println!("{}: {}", "Hex".green(), hex::encode(bytes32));
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+        Commands::ToBytes32 { input, format } => match to_bytes32(&input, &format) {
+            Ok(bytes32) => {
+                println!(
+                    "{}: [{}]",
+                    "Bytes32 Array".green(),
+                    bytes32
+                        .iter()
+                        .map(|b| b.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                println!("{}: {}", "Hex".green(), hex::encode(bytes32));
             }
-        }
-        Commands::FromBytes32 { input, input_format, output_format } => {
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
+        Commands::FromBytes32 {
+            input,
+            input_format,
+            output_format,
+        } => {
             if let Err(e) = from_bytes32(&input, &input_format, &output_format) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
